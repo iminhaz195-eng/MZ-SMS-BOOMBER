@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ============================================================
-#  MZ MINHAZ - SMS BOMBER STARTUP SCRIPT
+#  MZ MINHAZ - SMS BOMBER STARTUP SCRIPT (Non-Root Ready)
 # ============================================================
 
 # টেক্সট কালার
@@ -18,15 +18,14 @@ echo -e "${CYAN}==========================================${NC}"
 # ১. পাইথন চেক করা
 if ! command -v python3 &> /dev/null; then
     echo -e "${RED}❌ Error: python3 is not installed.${NC}"
-    echo -e "${YELLOW}👉 Termux: pkg install python${NC}"
-    echo -e "${YELLOW}👉 Ubuntu: sudo apt install python3${NC}"
+    echo -e "${YELLOW}👉 Ubuntu: sudo apt install python3 python3-pip${NC}"
     exit 1
 fi
 
 # ২. পাইথন প্যাকেজ চেক ও ইনস্টল করা
 echo -e "${YELLOW}⏳ Checking required Python packages...${NC}"
 if ! python3 -c "import telegram, flask, aiohttp" &> /dev/null; then
-    echo -e "${YELLOW}📦 Installing missing packages (python-telegram-bot, flask, aiohttp)...${NC}"
+    echo -e "${YELLOW}📦 Installing missing packages...${NC}"
     pip install python-telegram-bot==20.7 flask aiohttp urllib3
     if [ $? -ne 0 ]; then
         echo -e "${RED}❌ Failed to install python packages.${NC}"
@@ -36,21 +35,55 @@ else
     echo -e "${GREEN}✅ Python packages are ready.${NC}"
 fi
 
-# ৩. cloudflared চেক করা (অটো টানেলের জন্য)
+# ৩. cloudflared চেক ও ইনস্টল করা (নন-রুট মোড)
 if ! command -v cloudflared &> /dev/null; then
-    echo -e "${RED}❌ Error: cloudflared is not installed.${NC}"
-    echo -e "${YELLOW}👉 Termux: pkg install cloudflared${NC}"
-    echo -e "${YELLOW}👉 Linux: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/${NC}"
-    exit 1
+    echo -e "${YELLOW}⚠️  cloudflared is not installed. Installing automatically...${NC}"
+    
+    # লোকাল বিন ফোল্ডার তৈরি
+    mkdir -p "$HOME/.local/bin"
+    
+    # আর্কিটেকচার ডিটেক্ট করা (amd64 বা arm64)
+    ARCH=$(uname -m)
+    if [ "$ARCH" = "x86_64" ]; then
+        CF_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"
+    elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+        CF_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64"
+    else
+        echo -e "${RED}❌ Unsupported architecture: $ARCH${NC}"
+        exit 1
+    fi
+
+    echo -e "${CYAN}Downloading cloudflared...${NC}"
+    # curl বা wget দিয়ে ডাউনলোড
+    if command -v curl &> /dev/null; then
+        curl -L --output "$HOME/.local/bin/cloudflared" "$CF_URL"
+    elif command -v wget &> /dev/null; then
+        wget -O "$HOME/.local/bin/cloudflared" "$CF_URL"
+    else
+        echo -e "${RED}❌ Neither curl nor wget is installed. Cannot download cloudflared.${NC}"
+        exit 1
+    fi
+
+    # পারমিশন দেওয়া
+    chmod +x "$HOME/.local/bin/cloudflared"
+    
+    # PATH এ অ্যাড করা (বর্তমান সেশনের জন্য)
+    export PATH="$HOME/.local/bin:$PATH"
+    
+    # PATH এ অ্যাড করা (ভবিষ্যতের জন্য .bashrc তে)
+    if ! grep -q '.local/bin' "$HOME/.bashrc"; then
+        echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
+    fi
+    
+    echo -e "${GREEN}✅ cloudflared installed successfully!${NC}"
+else
+    echo -e "${GREEN}✅ cloudflared is ready.${NC}"
 fi
-echo -e "${GREEN}✅ cloudflared is installed.${NC}"
 
 # ৪. API টোকেন চেক (ঐচ্ছিক)
 if [[ -z "$BOT_TOKEN" ]]; then
-    echo -e "${YELLOW}⚠️  WARNING: BOT_TOKEN is not set.${NC}"
-    echo -e "${YELLOW}   Either set it in your environment 'export BOT_TOKEN=\"...\"'${NC}"
-    echo -e "${YELLOW}   Or edit the bot.py file directly.${NC}"
-    sleep 2
+    echo -e "${YELLOW}⚠️  WARNING: BOT_TOKEN is not set in environment.${NC}"
+    echo -e "${YELLOW}   Make sure you edited bot.py and added your token.${NC}"
 fi
 
 echo -e "${CYAN}==========================================${NC}"
