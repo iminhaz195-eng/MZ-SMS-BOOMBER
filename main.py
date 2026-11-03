@@ -36,7 +36,7 @@ from telegram.ext import (
 from telegram.constants import ParseMode
 
 # ============ CONFIG ============
-BOT_TOKEN          = os.environ.get("BOT_TOKEN", "PUT_YOUR_BOT_TOKEN_HERE")
+BOT_TOKEN          = os.environ.get("BOT_TOKEN", "8903303064:AAGEXI6s1Vt3kTyCN25CZlhHOoFY9qdJMj8)
 ADMIN_ID           = int(os.environ.get("ADMIN_ID", 8255204869))
 CHANNEL_URL        = "https://t.me/mz_creations_official"
 CHANNEL_USERNAME   = "@mz_creations_official"
