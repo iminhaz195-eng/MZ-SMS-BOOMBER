@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # ============================================================
-#  MZ MINHAZ - SMS BOMBER (Premium UI + Hidden Admin Panel)
+#  MZ MINHAZ - SMS BOMBER (Premium UI + Advanced Admin Panel)
 #  Developer: MZ MINHAZ
 #  Admin: 8255204869
 #  Channel: https://t.me/mz_creations_official
@@ -37,8 +37,7 @@ from telegram.ext import (
 from telegram.constants import ParseMode
 
 # ============ CONFIG ============
-# আপনার টোকেনটি নিচের কোটেশনের ভেতরে বসান (কোনো স্পেস বা এন্টার ছাড়া)
-BOT_TOKEN          = os.environ.get("BOT_TOKEN", "8903303064:AAE9pEU_jevZRXyGRDx0tSAKHXBpXeezW_I")
+BOT_TOKEN          = "8903303064:AAE9pEU_jevZRXyGRDx0tSAKHXBpXeezW_I"
 ADMIN_ID           = int(os.environ.get("ADMIN_ID", 8255204869))
 CHANNEL_URL        = "https://t.me/mz_creations_official"
 CHANNEL_USERNAME   = "@mz_creations_official"
@@ -1527,7 +1526,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def _show_admin_panel(update_or_query, edit=False):
     kb = [
         [InlineKeyboardButton("📊 Stats", callback_data="admin_stats"),
-         InlineKeyboardButton("👥 User Info", callback_data="admin_userinfo")],
+         InlineKeyboardButton("👥 User List", callback_data="admin_userinfo")],
         [InlineKeyboardButton("➕ Add Credits", callback_data="admin_add"),
          InlineKeyboardButton("➖ Remove Credits", callback_data="admin_remove")],
         [InlineKeyboardButton("📢 Broadcast", callback_data="admin_broadcast"),
@@ -1544,6 +1543,41 @@ async def _show_admin_panel(update_or_query, edit=False):
     else:
         msg = update_or_query.message if hasattr(update_or_query, "message") else update_or_query
         await msg.reply_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(kb))
+
+async def _show_user_list(q, page=0):
+    limit = 10
+    offset = page * limit
+    users = db_query("SELECT chat_id, first_name, username, credits, banned FROM users LIMIT ? OFFSET ?", (limit, offset), fetch=True)
+    total_users = db_query("SELECT COUNT(*) FROM users", fetch=True)[0][0]
+    
+    total_pages = max(1, (total_users + limit - 1) // limit)
+    
+    text = f"👥 *User List* ({total_users} total)\n📄 Page {page+1}/{total_pages}\n\n"
+    if not users:
+        text += "No users found in database."
+    else:
+        for u in users:
+            chat_id, fname, uname, credits, banned = u
+            status = "🚫" if banned else "✅"
+            name = fname if fname else "No Name"
+            uname_str = f"@{uname}" if uname else ""
+            text += f"{status} *{name}* {uname_str}\n"
+            text += f"🆔 `{chat_id}` | 💎 {credits}\n\n"
+            
+    kb = []
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"admin_userlist_{page-1}"))
+    if page < total_pages - 1:
+        nav_row.append(InlineKeyboardButton("➡️ Next", callback_data=f"admin_userlist_{page+1}"))
+        
+    if nav_row:
+        kb.append(nav_row)
+        
+    kb.append([InlineKeyboardButton("🔍 Search by ID", callback_data="admin_search_user")])
+    kb.append([InlineKeyboardButton("🔙 Back", callback_data="admin_back")])
+    
+    await q.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(kb))
 
 async def _handle_admin_input(update, context, action, txt):
     context.user_data["admin_action"] = None
@@ -1582,14 +1616,22 @@ async def _handle_admin_input(update, context, action, txt):
         if not row:
             await update.message.reply_text("❌ User not found.")
             return
+            
+        extra = db_query("SELECT first_name, username FROM users WHERE chat_id=?", (int(txt),), fetch=True)[0]
+        fname = extra[0] or "No Name"
+        uname = f"@{extra[1]}" if extra[1] else "None"
+        
         await update.message.reply_text(
             f"👤 *User Info*\n\n"
             f"🆔 `{row[0]}`\n"
+            f"📝 Name: {fname}\n"
+            f"📧 Username: {uname}\n"
             f"💎 Credits: {row[1]}\n"
             f"👥 Referred by: {row[2]}\n"
             f"🚫 Banned: {row[3]}\n"
             f"⚔️ Attacks: {row[5]}",
-            parse_mode=ParseMode.MARKDOWN
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to List", callback_data="admin_userinfo")]])
         )
 
     elif action == "ban":
@@ -1654,11 +1696,21 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_back")]])
         )
-    elif data in ("admin_add", "admin_remove", "admin_userinfo", "admin_ban", "admin_unban", "admin_broadcast"):
+    elif data == "admin_userinfo":
+        await _show_user_list(q, 0)
+    elif data.startswith("admin_userlist_"):
+        page = int(data.split("_")[-1])
+        await _show_user_list(q, page)
+    elif data == "admin_search_user":
+        context.user_data["admin_action"] = "userinfo"
+        await q.edit_message_text(
+            "👤 Send the user's chat_id:", 
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Cancel", callback_data="admin_userinfo")]])
+        )
+    elif data in ("admin_add", "admin_remove", "admin_ban", "admin_unban", "admin_broadcast"):
         prompts = {
             "admin_add": ("add", "➕ Send: `<chat_id> <amount>`", ParseMode.MARKDOWN),
             "admin_remove": ("remove", "➖ Send: `<chat_id> <amount>`", ParseMode.MARKDOWN),
-            "admin_userinfo": ("userinfo", "👤 Send the user's chat_id:", None),
             "admin_ban": ("ban", "🚫 Send chat_id to ban:", None),
             "admin_unban": ("unban", "✅ Send chat_id to unban:", None),
             "admin_broadcast": ("broadcast", "📢 Send the broadcast message:", None),
